@@ -6,6 +6,8 @@ every feature; IDs in parentheses refer to it.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Added
 
 - `gw121 scan [--all] [--timeout]`: find nearby 121GW meters (or any BLE device) (CLI-4).

@@ -197,7 +197,7 @@ async fn cmd_scan(out: &Out, timeout: Duration, all: bool) -> Result<()> {
     let adapter = ble::adapter().await.context("opening the BLE adapter")?;
     let spinner = out.spinner("scanning for BLE devices...");
     let filter = if all { "" } else { "121gw" };
-    let found = ble::scan(&adapter, timeout, filter)
+    let found = ble::scan(&adapter, timeout, filter, false)
         .await
         .context("scanning")?;
     spinner.finish_and_clear();
@@ -211,13 +211,14 @@ async fn cmd_scan(out: &Out, timeout: Duration, all: bool) -> Result<()> {
     }
     for f in &found {
         let name = f.name.clone().unwrap_or_else(|| "-".to_string());
-        let rssi = f
-            .rssi
-            .map(|r| format!("{r} dBm"))
-            .unwrap_or_else(|| "-".to_string());
+        let rssi = match (f.rssi, f.connected) {
+            (Some(r), _) => format!("{r} dBm"),
+            (None, true) => "connected".to_string(),
+            (None, false) => "not heard (remembered by BlueZ)".to_string(),
+        };
         out.print(
             format!("{:<20} {:<16} {}", f.address, name, style::dim(&rssi)),
-            json!({ "address": f.address.to_string(), "name": f.name, "rssi": f.rssi }),
+            json!({ "address": f.address.to_string(), "name": f.name, "rssi": f.rssi, "connected": f.connected }),
         );
     }
     Ok(())
@@ -236,7 +237,7 @@ async fn resolve_address(
             .map_err(|_| anyhow!("`{a}` is not a BLE address (expected 88:6B:0F:73:00:01)"));
     }
     let spinner = out.spinner("scanning for a 121GW...");
-    let found = ble::scan(adapter, timeout, "121gw")
+    let found = ble::scan(adapter, timeout, "121gw", true)
         .await
         .context("scanning")?;
     spinner.finish_and_clear();
@@ -263,23 +264,49 @@ async fn connect_characteristic(
     out: &Out,
     address: bluer::Address,
     timeout: Duration,
-) -> Result<bluer::gatt::remote::Characteristic> {
+) -> Result<(bluer::Device, bluer::gatt::remote::Characteristic)> {
     let adapter = ble::adapter().await.context("opening the BLE adapter")?;
     let spinner = out.spinner(&format!("connecting to {address}..."));
-    let device = ble::connect(&adapter, address, timeout)
+    // BlueZ keeps a meter it saw earlier as a device object and its connect() waits on its own, much longer
+    // timeout when the meter is off: bound the whole connect + GATT lookup by --timeout.
+    let connect = async {
+        let device = ble::connect(&adapter, address, timeout)
+            .await
+            .context("connecting")?;
+        let characteristic = ble::find_data_characteristic(&device)
+            .await
+            .context("looking for the meter's data characteristic")?;
+        Ok::<_, anyhow::Error>((device, characteristic))
+    };
+    let connected = tokio::time::timeout(timeout, connect)
         .await
-        .context("connecting")?;
-    let characteristic = ble::find_data_characteristic(&device)
-        .await
-        .context("looking for the meter's data characteristic")?;
+        .map_err(|_| {
+            anyhow!(
+                "could not connect to {address} in {timeout:?}; is the meter on, in BLE mode and in range?"
+            )
+        })??;
     spinner.finish_and_clear();
-    Ok(characteristic)
+    Ok(connected)
+}
+
+/// Runs `body` on the meter's data characteristic, then disconnects: a meter left connected stops
+/// advertising, so the next scan would not hear it.
+async fn with_meter<T>(
+    out: &Out,
+    address: bluer::Address,
+    timeout: Duration,
+    body: impl AsyncFnOnce(&bluer::gatt::remote::Characteristic) -> Result<T>,
+) -> Result<T> {
+    let (device, characteristic) = connect_characteristic(out, address, timeout).await?;
+    let result = body(&characteristic).await;
+    let _ = tokio::time::timeout(Duration::from_secs(3), device.disconnect()).await;
+    result
 }
 
 fn reading_json(r: &Result<Reading, crate::protocol::ParseError>) -> Value {
     match r {
         Ok(r) => json!({
-            "value": if r.value.is_finite() { json!(r.value) } else { json!(if r.value > 0.0 {"inf"} else {"-inf"}) },
+            "value": if r.value.is_finite() { json!(round_to(r.value, r.digits)) } else { json!(if r.value > 0.0 {"inf"} else {"-inf"}) },
             "unit": r.unit.symbol(),
             "quantity": format!("{:?}", r.quantity).to_lowercase(),
             "digits": r.digits,
@@ -289,6 +316,13 @@ fn reading_json(r: &Result<Reading, crate::protocol::ParseError>) -> Value {
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
+}
+
+/// The value with the meter's decimals only, so JSON shows 3.2971, not 3.2971000000000004.
+/// `digits` may be negative (whole kilohms of a megohm range).
+fn round_to(value: f64, digits: i32) -> f64 {
+    let scale = 10f64.powi(digits);
+    (value * scale).round() / scale
 }
 
 fn flags_json(f: &Flags) -> Value {
@@ -315,7 +349,7 @@ fn packet_json(p: &Packet) -> Value {
         Ok(Some(bar)) => {
             obj.insert(
                 "bar".to_string(),
-                json!({ "value": bar.value, "digits": bar.digits }),
+                json!({ "value": round_to(bar.value, bar.digits), "digits": bar.digits }),
             );
         }
         Ok(None) => {}
@@ -370,8 +404,19 @@ fn packet_text(p: &Packet) -> String {
 async fn cmd_read(out: &Out, address: Option<String>, timeout: Duration) -> Result<()> {
     let adapter = ble::adapter().await.context("opening the BLE adapter")?;
     let address = resolve_address(out, &adapter, address, timeout).await?;
-    let characteristic = connect_characteristic(out, address, timeout).await?;
-    let mut stream = ble::notify_stream(&characteristic)
+    with_meter(out, address, timeout, async |c| {
+        read_one(out, address, timeout, c).await
+    })
+    .await
+}
+
+async fn read_one(
+    out: &Out,
+    address: bluer::Address,
+    timeout: Duration,
+    characteristic: &bluer::gatt::remote::Characteristic,
+) -> Result<()> {
+    let mut stream = ble::notify_stream(characteristic)
         .await
         .context("subscribing")?;
     let mut reassembler = Reassembler::new();
@@ -381,8 +426,10 @@ async fn cmd_read(out: &Out, address: Option<String>, timeout: Duration) -> Resu
             anyhow::bail!("no valid packet from {address} in {timeout:?}");
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let Ok(Some(chunk)) = tokio::time::timeout(remaining, stream.next()).await else {
-            anyhow::bail!("no valid packet from {address} in {timeout:?}");
+        let chunk = match tokio::time::timeout(remaining, stream.next()).await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => anyhow::bail!("{address} disconnected (meter off or out of range)"),
+            Err(_) => anyhow::bail!("no valid packet from {address} in {timeout:?}"),
         };
         reassembler.push(&chunk);
         if let Some(buf) = reassembler.next_packet() {
@@ -403,8 +450,21 @@ async fn cmd_log(
 ) -> Result<()> {
     let adapter = ble::adapter().await.context("opening the BLE adapter")?;
     let address = resolve_address(out, &adapter, address, timeout).await?;
-    let characteristic = connect_characteristic(out, address, timeout).await?;
-    let mut stream = ble::notify_stream(&characteristic)
+    with_meter(out, address, timeout, async |c| {
+        log_stream(out, address, c, for_, every, csv).await
+    })
+    .await
+}
+
+async fn log_stream(
+    out: &Out,
+    address: bluer::Address,
+    characteristic: &bluer::gatt::remote::Characteristic,
+    for_: Option<Duration>,
+    every: Option<Duration>,
+    csv: Option<PathBuf>,
+) -> Result<()> {
+    let mut stream = ble::notify_stream(characteristic)
         .await
         .context("subscribing")?;
     let mut reassembler = Reassembler::new();
@@ -440,13 +500,21 @@ async fn cmd_log(
         {
             break;
         }
-        let Ok(Some(chunk)) = tokio::time::timeout(Duration::from_secs(2), stream.next()).await
-        else {
-            if !running.load(Ordering::SeqCst) {
-                break;
+        // Wait at most 2 s, and never past the end of --for.
+        let mut wait = Duration::from_secs(2);
+        if let Some(for_) = for_ {
+            wait = wait.min(for_.saturating_sub(start.elapsed()));
+        }
+        let chunk = match tokio::time::timeout(wait, stream.next()).await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => anyhow::bail!("{address} disconnected (meter off or out of range)"),
+            Err(_) => {
+                let done = for_.is_some_and(|f| start.elapsed() >= f);
+                if running.load(Ordering::SeqCst) && !done {
+                    out.warn(&format!("no data from {address} for 2s; still listening"));
+                }
+                continue;
             }
-            out.warn(&format!("no data from {address} for 2s; still listening"));
-            continue;
         };
         reassembler.push(&chunk);
         while let Some(buf) = reassembler.next_packet() {
@@ -497,4 +565,15 @@ fn write_csv_row(f: &mut std::fs::File, p: &Packet) -> Result<()> {
         flags.auto_range, flags.hold, flags.relative, flags.low_battery
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::round_to;
+
+    #[test]
+    fn round_to_meter_digits() {
+        assert_eq!(round_to(3.2971000000000004, 4), 3.2971);
+        assert_eq!(round_to(1234.0, -3), 1000.0);
+    }
 }

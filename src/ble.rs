@@ -23,6 +23,8 @@ pub struct Found {
     pub address: Address,
     pub name: Option<String>,
     pub rssi: Option<i16>,
+    /// Connected to this PC already: a connected meter does not advertise, so it has no RSSI.
+    pub connected: bool,
 }
 
 /// Opens a session and powers on the first adapter, powering it on if needed.
@@ -36,11 +38,12 @@ pub async fn adapter() -> anyhow::Result<Adapter> {
 }
 
 /// Scans for `timeout`, returning every device whose name contains `name_filter` (case-insensitive), or every
-/// device when `name_filter` is empty. Newest-seen first.
+/// device when `name_filter` is empty. Newest-seen first. With `first`, stops at the first match.
 pub async fn scan(
     adapter: &Adapter,
     timeout: Duration,
     name_filter: &str,
+    first: bool,
 ) -> anyhow::Result<Vec<Found>> {
     let filter = name_filter.to_lowercase();
     let mut events = adapter.discover_devices().await?;
@@ -76,8 +79,20 @@ pub async fn scan(
                 address,
                 name,
                 rssi,
+                connected: false,
             },
         );
+        if first {
+            break;
+        }
+    }
+    // A device BlueZ remembers is reported at once, before it is heard: read RSSI again now that the scan
+    // ran. Still none means it was not heard at all (off or out of range).
+    for f in &mut found {
+        if let Ok(device) = adapter.device(f.address) {
+            f.rssi = device.rssi().await.ok().flatten();
+            f.connected = device.is_connected().await.unwrap_or(false);
+        }
     }
     Ok(found)
 }
@@ -89,7 +104,8 @@ pub async fn connect(
     address: Address,
     timeout: Duration,
 ) -> anyhow::Result<Device> {
-    if adapter.device(address).is_err() {
+    // `adapter.device()` gives a handle for any address; whether BlueZ knows it shows in its device list.
+    if !adapter.device_addresses().await?.contains(&address) {
         let mut events = adapter.discover_devices().await?;
         let deadline = tokio::time::Instant::now() + timeout;
         loop {

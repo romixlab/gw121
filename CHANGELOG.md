@@ -18,4 +18,14 @@ every feature; IDs in parentheses refer to it.
 - BLE transport over `bluer`: scan, connect, find the data characteristic by its `indicate` property (BLE-1).
 - `--json` on every command, `--version` with git SHA and build time, colour, a spinner while scanning or
   connecting, dynamic shell completion (`source <(COMPLETE=bash gw121)`) (CLI-1..CLI-3).
+
+### Fixed
+
+- `read` and `log` give up after `--timeout` with "is the meter on, in BLE mode and in range?" instead of hanging
+  when the meter is off but BlueZ still remembers it; `log --for` stops on time, and a meter that disconnects
+  ends `log` with an error instead of a loop of warnings (BLE-1, CLI-6).
+- `read` and `log` disconnect when done: a meter left connected stops advertising, so the next scan could not
+  hear it; `scan` says `connected` or `not heard` where it has no RSSI, and connecting stops scanning at the
+  first 121GW found instead of after the whole `--timeout` (BLE-1, CLI-4).
+- JSON values are rounded to the meter's digits (3.2971, not 3.2971000000000004) (CLI-5, CLI-6).
 - Agent skill `skills/gw121/SKILL.md` (SKILL-1).

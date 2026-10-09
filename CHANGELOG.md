@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to gw121_cli are recorded here, newest first. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [FEATURES.md](FEATURES.md) holds the current status of
+every feature; IDs in parentheses refer to it.
+
+## [Unreleased]
+
+### Added
+
+- `gw121 scan [--all] [--timeout]`: find nearby 121GW meters (or any BLE device) (CLI-4).
+- `gw121 read [--address] [--timeout]`: connect and print one reading (CLI-5).
+- `gw121 log [--address] [--timeout] [--for] [--every] [--csv]`: connect and print readings continuously until
+  Ctrl+C or `--for`, optionally also as CSV (CLI-6).
+- The 121GW's 19-byte BLE packet format, ported from libsigrok's `eev121gw` driver: main/sub displays,
+  bargraph, global flags (DMM-1, DMM-2).
+- A BLE indication reassembler that resyncs packets out of a stream not aligned to 19-byte boundaries (BLE-2).
+- BLE transport over `bluer`: scan, connect, find the data characteristic by its `indicate` property (BLE-1).
+- `--json` on every command, `--version` with git SHA and build time, colour, a spinner while scanning or
+  connecting, dynamic shell completion (`source <(COMPLETE=bash gw121)`) (CLI-1..CLI-3).
+- Agent skill `skills/gw121/SKILL.md` (SKILL-1).

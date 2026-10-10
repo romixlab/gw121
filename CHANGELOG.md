@@ -6,6 +6,8 @@ every feature; IDs in parentheses refer to it.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-10
+
 ### Changed
 
 - The repo is github.com/romixlab/gw121 (was gw121_cli): the plain name for the repo and the library,

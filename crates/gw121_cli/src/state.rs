@@ -1,6 +1,6 @@
 //! A small cache of the last `gw121 scan` results, so shell completion can offer recently seen addresses
 //! without a multi-second BLE scan on every Tab press. Never used for anything but completion: `read`/`log`
-//! always scan again before connecting (see `ble::connect`).
+//! always scan again before connecting (see `gw121::ble::connect`).
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ fn path() -> PathBuf {
     dir.join("last-scan.json")
 }
 
-pub fn save_scan(found: &[crate::ble::Found]) {
+pub fn save_scan(found: &[gw121::Found]) {
     let devices: Vec<Value> = found
         .iter()
         .map(|f| {

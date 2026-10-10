@@ -19,6 +19,15 @@ directly; `gw121 scan --all` was run against this PC's real Bluetooth adapter an
 devices (a smartwatch, two TVs), confirming the adapter-open/discover/name/RSSI path works against real BlueZ
 — just not yet against the meter itself (connect and GATT characteristic lookup are untested on real BLE).
 
+## Library (`LIB`)
+
+- 🧪 **LIB-1 Library-first split**: a Cargo workspace: `crates/gw121` (the library: `Meter` open/connect,
+  `read`, `packets` as a `futures::Stream` of validated packets, `disconnect`; `gw121::read`; `ble::scan`,
+  `ble::find_meter`; typed `Packet`/`Reading`/`Flags`; `gw121::Error` via thiserror with one variant per
+  case), `crates/gw121_cli` (the same `gw121` commands, flags, JSON and completions, on the library) and
+  `crates/gw121_py` (PY-1). Unit tests moved with the code and pass; `gw121 scan`, `read` and `--json read`
+  were run against this PC's real adapter after the split.
+
 ## BLE transport (`BLE`)
 
 - 🧪 **BLE-1 Scan, connect, subscribe**: `ble.rs` uses `bluer` (BlueZ over D-Bus; AGENTS.md has why this and
@@ -78,6 +87,16 @@ devices (a smartwatch, two TVs), confirming the adapter-open/discover/name/RSSI 
 - 🧪 **CLI-6 log**: connects and prints readings continuously until Ctrl+C or `--for`; `--every` throttles how
   often a line is emitted (and how often a CSV row is written) to at most once per interval; `--csv FILE`
   appends rows alongside the normal text/JSON output. Not yet run against a real meter.
+
+## Python (`PY`)
+
+- 🧪 **PY-1 Python module `gw121`**: `crates/gw121_py`, PyO3 (abi3, Python >= 3.9) built with maturin:
+  `scan()`, `read()`, `log()` (an iterator of packets with `duration`/`every`/`timeout`, a context manager
+  that disconnects), `Meter` (stay connected: `read()`, `log()`, `close()`, `with`), `parse(bytes)` offline;
+  `Packet` (`main`, `sub`, `bar`, `flags`, `time`, `raw`), `Reading` (`value` rounded to the display's digits,
+  `unit`, `quantity`, `str()` as displayed), exceptions under `Gw121Error` mapped from `gw121::Error`. Calls
+  release the GIL and stop on Ctrl+C. Type stubs (`gw121.pyi`) ship in the wheel. `just test-py` builds it in
+  a venv under /tmp and runs the offline pytest smoke test (recorded packets, error mapping).
 
 ## Agent skill (`SKILL`)
 

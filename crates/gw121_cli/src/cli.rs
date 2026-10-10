@@ -1,12 +1,10 @@
 //! The command tree (clap derive) and the command handlers; `--json` output goes through [`Out::print`].
 
-use crate::protocol::{Flags, Packet, Reading};
-use crate::reassemble::Reassembler;
-use crate::{ble, complete, parse, state};
+use crate::{complete, parse, state};
 use anyhow::{Context as _, Result, anyhow};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::ArgValueCandidates;
-use futures_util::StreamExt;
+use gw121::{Address, Flags, Meter, Packet, ParseError, Reading, ble};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use serde_json::{Value, json};
 use std::io::{IsTerminal, Write as _};
@@ -227,88 +225,68 @@ async fn cmd_scan(out: &Out, timeout: Duration, all: bool) -> Result<()> {
 /// Resolves `--address`, scanning for the one 121GW nearby when it was not given.
 async fn resolve_address(
     out: &Out,
-    adapter: &bluer::Adapter,
+    adapter: &gw121::Adapter,
     address: Option<String>,
     timeout: Duration,
-) -> Result<bluer::Address> {
+) -> Result<Address> {
     if let Some(a) = address {
-        return a
-            .parse()
-            .map_err(|_| anyhow!("`{a}` is not a BLE address (expected 88:6B:0F:73:00:01)"));
+        return Ok(gw121::parse_address(&a)?);
     }
     let spinner = out.spinner("scanning for a 121GW...");
-    let found = ble::scan(adapter, timeout, "121gw", true)
-        .await
-        .context("scanning")?;
+    let found = ble::find_meter(adapter, timeout).await;
     spinner.finish_and_clear();
-    state::save_scan(&found);
-    match found.len() {
-        0 => Err(anyhow!(
-            "no 121GW seen in {timeout:?}; hold its 1ms PEAK button until the BT indicator lights, or pass --address"
-        )),
-        1 => Ok(found[0].address),
-        _ => {
-            let list = found
+    match found {
+        Ok(f) => {
+            state::save_scan(std::slice::from_ref(&f));
+            Ok(f.address)
+        }
+        Err(gw121::Error::NotFound(_)) => {
+            state::save_scan(&[]);
+            Err(anyhow!(
+                "no 121GW seen in {timeout:?}; hold its 1ms PEAK button until the BT indicator lights, or pass --address"
+            ))
+        }
+        Err(gw121::Error::Ambiguous(all)) => {
+            let list = all
                 .iter()
-                .map(|f| f.address.to_string())
+                .map(Address::to_string)
                 .collect::<Vec<_>>()
                 .join(", ");
             Err(anyhow!(
                 "more than one 121GW nearby ({list}); pass --address to pick one"
             ))
         }
+        Err(e) => Err(anyhow::Error::from(e).context("scanning")),
     }
 }
 
-async fn connect_characteristic(
-    out: &Out,
-    address: bluer::Address,
-    timeout: Duration,
-) -> Result<(bluer::Device, bluer::gatt::remote::Characteristic)> {
-    let adapter = ble::adapter().await.context("opening the BLE adapter")?;
-    let spinner = out.spinner(&format!("connecting to {address}..."));
-    // BlueZ keeps a meter it saw earlier as a device object and its connect() waits on its own, much longer
-    // timeout when the meter is off: bound the whole connect + GATT lookup by --timeout.
-    let connect = async {
-        let device = ble::connect(&adapter, address, timeout)
-            .await
-            .context("connecting")?;
-        let characteristic = ble::find_data_characteristic(&device)
-            .await
-            .context("looking for the meter's data characteristic")?;
-        Ok::<_, anyhow::Error>((device, characteristic))
-    };
-    let connected = tokio::time::timeout(timeout, connect)
-        .await
-        .map_err(|_| {
-            anyhow!(
-                "could not connect to {address} in {timeout:?}; is the meter on, in BLE mode and in range?"
-            )
-        })??;
-    spinner.finish_and_clear();
-    Ok(connected)
-}
-
-/// Runs `body` on the meter's data characteristic, then disconnects: a meter left connected stops
-/// advertising, so the next scan would not hear it.
+/// Connects, runs `body` on the meter, then disconnects: a meter left connected stops advertising, so the
+/// next scan would not hear it.
 async fn with_meter<T>(
     out: &Out,
-    address: bluer::Address,
+    adapter: &gw121::Adapter,
+    address: Address,
     timeout: Duration,
-    body: impl AsyncFnOnce(&bluer::gatt::remote::Characteristic) -> Result<T>,
+    body: impl AsyncFnOnce(&Meter) -> Result<T>,
 ) -> Result<T> {
-    let (device, characteristic) = connect_characteristic(out, address, timeout).await?;
-    let result = body(&characteristic).await;
-    let _ = tokio::time::timeout(Duration::from_secs(3), device.disconnect()).await;
+    let spinner = out.spinner(&format!("connecting to {address}..."));
+    let meter = Meter::connect(adapter, address, timeout).await;
+    spinner.finish_and_clear();
+    let meter = meter.map_err(|e| match e {
+        e @ gw121::Error::ConnectTimeout { .. } => anyhow::Error::from(e),
+        e => anyhow::Error::from(e).context("connecting"),
+    })?;
+    let result = body(&meter).await;
+    let _ = meter.disconnect().await;
     result
 }
 
-fn reading_json(r: &Result<Reading, crate::protocol::ParseError>) -> Value {
+fn reading_json(r: &Result<Reading, ParseError>) -> Value {
     match r {
         Ok(r) => json!({
-            "value": if r.value.is_finite() { json!(round_to(r.value, r.digits)) } else { json!(if r.value > 0.0 {"inf"} else {"-inf"}) },
+            "value": if r.value.is_finite() { json!(r.rounded()) } else { json!(if r.value > 0.0 {"inf"} else {"-inf"}) },
             "unit": r.unit.symbol(),
-            "quantity": format!("{:?}", r.quantity).to_lowercase(),
+            "quantity": r.quantity.name(),
             "digits": r.digits,
             "ac": r.ac,
             "dc": r.dc,
@@ -316,13 +294,6 @@ fn reading_json(r: &Result<Reading, crate::protocol::ParseError>) -> Value {
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
-}
-
-/// The value with the meter's decimals only, so JSON shows 3.2971, not 3.2971000000000004.
-/// `digits` may be negative (whole kilohms of a megohm range).
-fn round_to(value: f64, digits: i32) -> f64 {
-    let scale = 10f64.powi(digits);
-    (value * scale).round() / scale
 }
 
 fn flags_json(f: &Flags) -> Value {
@@ -349,7 +320,7 @@ fn packet_json(p: &Packet) -> Value {
         Ok(Some(bar)) => {
             obj.insert(
                 "bar".to_string(),
-                json!({ "value": round_to(bar.value, bar.digits), "digits": bar.digits }),
+                json!({ "value": bar.rounded(), "digits": bar.digits }),
             );
         }
         Ok(None) => {}
@@ -371,15 +342,15 @@ fn packet_text(p: &Packet) -> String {
                 (false, true) => " DC",
                 (false, false) => "",
             };
-            lines.push(format!("main: {}{acdc}", parse::fmt_reading(&r)));
+            lines.push(format!("main: {r}{acdc}"));
         }
         Err(e) => lines.push(format!("main: -- ({e})")),
     }
     if let Ok(r) = p.sub() {
-        lines.push(format!("sub:  {}", parse::fmt_reading(&r)));
+        lines.push(format!("sub:  {r}"));
     }
     if let Ok(Some(r)) = p.bar() {
-        lines.push(format!("bar:  {}", parse::fmt_reading(&r)));
+        lines.push(format!("bar:  {r}"));
     }
     let f = p.flags();
     let mut tags = Vec::new();
@@ -404,40 +375,12 @@ fn packet_text(p: &Packet) -> String {
 async fn cmd_read(out: &Out, address: Option<String>, timeout: Duration) -> Result<()> {
     let adapter = ble::adapter().await.context("opening the BLE adapter")?;
     let address = resolve_address(out, &adapter, address, timeout).await?;
-    with_meter(out, address, timeout, async |c| {
-        read_one(out, address, timeout, c).await
+    with_meter(out, &adapter, address, timeout, async |meter| {
+        let packet = meter.read(timeout).await?;
+        out.print(packet_text(&packet), packet_json(&packet));
+        Ok(())
     })
     .await
-}
-
-async fn read_one(
-    out: &Out,
-    address: bluer::Address,
-    timeout: Duration,
-    characteristic: &bluer::gatt::remote::Characteristic,
-) -> Result<()> {
-    let mut stream = ble::notify_stream(characteristic)
-        .await
-        .context("subscribing")?;
-    let mut reassembler = Reassembler::new();
-    let deadline = Instant::now() + timeout;
-    loop {
-        if Instant::now() >= deadline {
-            anyhow::bail!("no valid packet from {address} in {timeout:?}");
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let chunk = match tokio::time::timeout(remaining, stream.next()).await {
-            Ok(Some(chunk)) => chunk,
-            Ok(None) => anyhow::bail!("{address} disconnected (meter off or out of range)"),
-            Err(_) => anyhow::bail!("no valid packet from {address} in {timeout:?}"),
-        };
-        reassembler.push(&chunk);
-        if let Some(buf) = reassembler.next_packet() {
-            let packet = Packet::parse(buf).context("validated but unparseable packet")?;
-            out.print(packet_text(&packet), packet_json(&packet));
-            return Ok(());
-        }
-    }
 }
 
 async fn cmd_log(
@@ -450,24 +393,21 @@ async fn cmd_log(
 ) -> Result<()> {
     let adapter = ble::adapter().await.context("opening the BLE adapter")?;
     let address = resolve_address(out, &adapter, address, timeout).await?;
-    with_meter(out, address, timeout, async |c| {
-        log_stream(out, address, c, for_, every, csv).await
+    with_meter(out, &adapter, address, timeout, async |meter| {
+        log_stream(out, meter, for_, every, csv).await
     })
     .await
 }
 
 async fn log_stream(
     out: &Out,
-    address: bluer::Address,
-    characteristic: &bluer::gatt::remote::Characteristic,
+    meter: &Meter,
     for_: Option<Duration>,
     every: Option<Duration>,
     csv: Option<PathBuf>,
 ) -> Result<()> {
-    let mut stream = ble::notify_stream(characteristic)
-        .await
-        .context("subscribing")?;
-    let mut reassembler = Reassembler::new();
+    let address = meter.address();
+    let mut packets = meter.packets().await.context("subscribing")?;
 
     let mut csv_file = match &csv {
         Some(path) => {
@@ -505,9 +445,8 @@ async fn log_stream(
         if let Some(for_) = for_ {
             wait = wait.min(for_.saturating_sub(start.elapsed()));
         }
-        let chunk = match tokio::time::timeout(wait, stream.next()).await {
-            Ok(Some(chunk)) => chunk,
-            Ok(None) => anyhow::bail!("{address} disconnected (meter off or out of range)"),
+        let packet = match tokio::time::timeout(wait, packets.next_packet()).await {
+            Ok(packet) => packet?,
             Err(_) => {
                 let done = for_.is_some_and(|f| start.elapsed() >= f);
                 if running.load(Ordering::SeqCst) && !done {
@@ -516,20 +455,16 @@ async fn log_stream(
                 continue;
             }
         };
-        reassembler.push(&chunk);
-        while let Some(buf) = reassembler.next_packet() {
-            let now = Instant::now();
-            if let Some(every) = every
-                && last_printed.is_some_and(|t| now.duration_since(t) < every)
-            {
-                continue;
-            }
-            last_printed = Some(now);
-            let packet = Packet::parse(buf).context("validated but unparseable packet")?;
-            out.print(packet_text(&packet), packet_json(&packet));
-            if let Some(f) = csv_file.as_mut() {
-                write_csv_row(f, &packet)?;
-            }
+        let now = Instant::now();
+        if let Some(every) = every
+            && last_printed.is_some_and(|t| now.duration_since(t) < every)
+        {
+            continue;
+        }
+        last_printed = Some(now);
+        out.print(packet_text(&packet), packet_json(&packet));
+        if let Some(f) = csv_file.as_mut() {
+            write_csv_row(f, &packet)?;
         }
     }
     Ok(())
@@ -542,7 +477,7 @@ fn write_csv_row(f: &mut std::fs::File, p: &Packet) -> Result<()> {
         .as_millis();
     let (mv, mu, mac, mdc, mof) = match p.main() {
         Ok(r) => (
-            parse::fmt_reading(&r),
+            r.to_string(),
             r.unit.symbol().to_string(),
             r.ac,
             r.dc,
@@ -551,11 +486,11 @@ fn write_csv_row(f: &mut std::fs::File, p: &Packet) -> Result<()> {
         Err(_) => (String::new(), String::new(), false, false, false),
     };
     let (sv, su) = match p.sub() {
-        Ok(r) => (parse::fmt_reading(&r), r.unit.symbol().to_string()),
+        Ok(r) => (r.to_string(), r.unit.symbol().to_string()),
         Err(_) => (String::new(), String::new()),
     };
     let bv = match p.bar() {
-        Ok(Some(r)) => parse::fmt_reading(&r),
+        Ok(Some(r)) => r.to_string(),
         _ => String::new(),
     };
     let flags = p.flags();
@@ -565,15 +500,4 @@ fn write_csv_row(f: &mut std::fs::File, p: &Packet) -> Result<()> {
         flags.auto_range, flags.hold, flags.relative, flags.low_battery
     )?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::round_to;
-
-    #[test]
-    fn round_to_meter_digits() {
-        assert_eq!(round_to(3.2971000000000004, 4), 3.2971);
-        assert_eq!(round_to(1234.0, -3), 1000.0);
-    }
 }

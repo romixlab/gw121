@@ -1,0 +1,18 @@
+[package]
+name = "gw121"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Read an EEVblog 121GW multimeter over Bluetooth LE: scan, connect, typed readings and streams"
+readme = "../../README.md"
+keywords = ["eevblog", "121gw", "multimeter", "ble", "sigrok"]
+categories = ["hardware-support", "parser-implementations"]
+
+[dependencies]
+bluer.workspace = true
+futures-util.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["time"] }

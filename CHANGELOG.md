@@ -6,6 +6,19 @@ every feature; IDs in parentheses refer to it.
 
 ## [Unreleased]
 
+### Added
+
+- `gw121` library crate: scan, connect, read one packet or stream them, typed readings and flags, errors as an
+  enum (LIB-1).
+- `gw121` Python module (`crates/gw121_py`, `pip install ./crates/gw121_py`): `scan()`, `read()`, `log()`
+  iterator, `Meter`, `parse()`, type stubs (PY-1).
+
+### Changed
+
+- The repo is a Cargo workspace: `crates/gw121` (library), `crates/gw121_cli` (the `gw121` binary, same
+  commands and output), `crates/gw121_py`; install with `cargo install --path crates/gw121_cli` or
+  `just install` (LIB-1).
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

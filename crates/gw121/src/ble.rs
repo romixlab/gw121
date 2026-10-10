@@ -5,12 +5,18 @@
 //! capture addresses it by raw ATT handle, `gatttool -a 9`/`-a 8`, which BlueZ's D-Bus API does not expose);
 //! instead this discovers it at connect time as "the characteristic that supports indicate", which the 121GW
 //! was observed to have exactly one of (AGENTS.md has the detail).
+//!
+//! [`crate::Meter`] wraps these steps; they are public for callers that want to show progress between them.
 
+use crate::{Error, Result};
 use bluer::gatt::remote::Characteristic;
 use bluer::{Adapter, Address, Device, Session};
 use futures_util::{Stream, StreamExt};
 use std::pin::Pin;
 use std::time::Duration;
+
+/// What a 121GW advertises its name as, matched case-insensitively.
+pub const METER_NAME: &str = "121gw";
 
 /// A stream of raw BLE indication payloads, boxed because `Characteristic::notify`'s stream type isn't `Unpin`
 /// (it is built from `pin_project`-based combinators internally) and callers need to hold onto it across
@@ -18,7 +24,7 @@ use std::time::Duration;
 pub type DataStream = Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
 
 /// A device seen while scanning.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
     pub address: Address,
     pub name: Option<String>,
@@ -27,8 +33,8 @@ pub struct Found {
     pub connected: bool,
 }
 
-/// Opens a session and powers on the first adapter, powering it on if needed.
-pub async fn adapter() -> anyhow::Result<Adapter> {
+/// Opens a session and the default adapter, powering it on if needed.
+pub async fn adapter() -> Result<Adapter> {
     let session = Session::new().await?;
     let adapter = session.default_adapter().await?;
     if !adapter.is_powered().await? {
@@ -44,7 +50,7 @@ pub async fn scan(
     timeout: Duration,
     name_filter: &str,
     first: bool,
-) -> anyhow::Result<Vec<Found>> {
+) -> Result<Vec<Found>> {
     let filter = name_filter.to_lowercase();
     let mut events = adapter.discover_devices().await?;
     let mut found = Vec::new();
@@ -97,13 +103,20 @@ pub async fn scan(
     Ok(found)
 }
 
+/// Scans for up to `timeout` and returns the one 121GW heard: [`Error::NotFound`] when none answers,
+/// [`Error::Ambiguous`] when several do.
+pub async fn find_meter(adapter: &Adapter, timeout: Duration) -> Result<Found> {
+    let mut found = scan(adapter, timeout, METER_NAME, true).await?;
+    match found.len() {
+        0 => Err(Error::NotFound(timeout)),
+        1 => Ok(found.remove(0)),
+        _ => Err(Error::Ambiguous(found.iter().map(|f| f.address).collect())),
+    }
+}
+
 /// Makes sure BlueZ has a `Device1` object for `address` (it needs to have seen it via discovery at least
 /// once), then connects.
-pub async fn connect(
-    adapter: &Adapter,
-    address: Address,
-    timeout: Duration,
-) -> anyhow::Result<Device> {
+pub async fn connect(adapter: &Adapter, address: Address, timeout: Duration) -> Result<Device> {
     // `adapter.device()` gives a handle for any address; whether BlueZ knows it shows in its device list.
     if !adapter.device_addresses().await?.contains(&address) {
         let mut events = adapter.discover_devices().await?;
@@ -111,16 +124,12 @@ pub async fn connect(
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                anyhow::bail!(
-                    "{address} was not seen while scanning for {timeout:?}; is the meter in BLE mode and in range?"
-                );
+                return Err(Error::NotSeen { address, timeout });
             }
             match tokio::time::timeout(remaining, events.next()).await {
                 Ok(Some(bluer::AdapterEvent::DeviceAdded(a))) if a == address => break,
                 Ok(Some(_)) => continue,
-                _ => anyhow::bail!(
-                    "{address} was not seen while scanning for {timeout:?}; is the meter in BLE mode and in range?"
-                ),
+                _ => return Err(Error::NotSeen { address, timeout }),
             }
         }
     }
@@ -132,7 +141,7 @@ pub async fn connect(
 }
 
 /// The GATT characteristic to read from: the device's only characteristic with the indicate property.
-pub async fn find_data_characteristic(device: &Device) -> anyhow::Result<Characteristic> {
+pub async fn find_data_characteristic(device: &Device) -> Result<Characteristic> {
     for service in device.services().await? {
         for characteristic in service.characteristics().await? {
             if characteristic.flags().await?.indicate {
@@ -140,14 +149,11 @@ pub async fn find_data_characteristic(device: &Device) -> anyhow::Result<Charact
             }
         }
     }
-    anyhow::bail!(
-        "no GATT characteristic with the indicate property on {}; not a 121GW, or its GATT table changed",
-        device.address()
-    )
+    Err(Error::NoDataCharacteristic(device.address()))
 }
 
 /// Subscribes and returns a stream of raw byte chunks, one per BLE indication. Feed these to
-/// [`crate::reassemble::Reassembler`] to get packets.
-pub async fn notify_stream(characteristic: &Characteristic) -> anyhow::Result<DataStream> {
+/// [`crate::Reassembler`] to get packets, or use [`crate::Meter::packets`] which does.
+pub async fn notify_stream(characteristic: &Characteristic) -> Result<DataStream> {
     Ok(Box::pin(characteristic.notify().await?))
 }

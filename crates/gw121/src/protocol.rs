@@ -52,56 +52,29 @@ const fn bit(byte: u8, pos: u32) -> bool {
     bits(byte, pos, 1) != 0
 }
 
-/// A packet failed validation before any field was interpreted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A packet failed validation, or a field holds a value no known mode/range table covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ParseError {
+    #[error("a packet is {PACKET_SIZE} bytes, got {0}")]
+    WrongLength(usize),
+    #[error("first byte is {0:#04x}, expected {START_BYTE:#04x}")]
     BadStartByte(u8),
+    #[error("a reserved bit is set (byte {0}: {1:#010b})")]
     ReservedBitSet(usize, u8),
+    #[error("checksum mismatch: packet says {0:#04x}, computed {1:#04x}")]
     BadChecksum(u8, u8),
+    #[error("main mode {0} has no known range table")]
     UnknownMainMode(u8),
+    #[error("sub mode {0} has no known range table")]
     UnknownSubMode(u8),
+    #[error("main mode {mode} range {range} is not in the mode's range table")]
     UnknownMainRange { mode: u8, range: u8 },
+    #[error("sub mode {mode} decimal point {point} is not in the mode's range table")]
     UnknownSubRange { mode: u8, point: u8 },
+    #[error("bargraph range {0} is not one of the four known ranges")]
     UnknownBarRange(u8),
 }
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParseError::BadStartByte(b) => {
-                write!(f, "first byte is {b:#04x}, expected {START_BYTE:#04x}")
-            }
-            ParseError::ReservedBitSet(off, b) => {
-                write!(f, "a reserved bit is set (byte {off}: {b:#010b})")
-            }
-            ParseError::BadChecksum(want, got) => {
-                write!(
-                    f,
-                    "checksum mismatch: packet says {want:#04x}, computed {got:#04x}"
-                )
-            }
-            ParseError::UnknownMainMode(m) => write!(f, "main mode {m} has no known range table"),
-            ParseError::UnknownSubMode(m) => write!(f, "sub mode {m} has no known range table"),
-            ParseError::UnknownMainRange { mode, range } => {
-                write!(
-                    f,
-                    "main mode {mode} range {range} is not in the mode's range table"
-                )
-            }
-            ParseError::UnknownSubRange { mode, point } => {
-                write!(
-                    f,
-                    "sub mode {mode} decimal point {point} is not in the mode's range table"
-                )
-            }
-            ParseError::UnknownBarRange(r) => {
-                write!(f, "bargraph range {r} is not one of the four known ranges")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 /// Validates the start byte, the bits the firmware never sets, and the XOR checksum. Does not interpret any
 /// other field.
@@ -165,6 +138,26 @@ pub enum Quantity {
     Count,
 }
 
+impl Quantity {
+    /// Lowercase name, as in JSON output (`voltage`, `dutycycle`).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Quantity::Voltage => "voltage",
+            Quantity::Current => "current",
+            Quantity::Power => "power",
+            Quantity::Resistance => "resistance",
+            Quantity::Capacitance => "capacitance",
+            Quantity::Temperature => "temperature",
+            Quantity::Frequency => "frequency",
+            Quantity::Period => "period",
+            Quantity::DutyCycle => "dutycycle",
+            Quantity::Continuity => "continuity",
+            Quantity::Gain => "gain",
+            Quantity::Count => "count",
+        }
+    }
+}
+
 /// The unit a reading's value is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
@@ -214,6 +207,42 @@ pub struct Reading {
     pub overload: bool,
     pub ac: bool,
     pub dc: bool,
+}
+
+impl Reading {
+    /// The value with the meter's decimals only (3.2971, not 3.2971000000000004); `digits` may be negative
+    /// (whole kilohms of a megohm range). Infinite on overload, as `value`.
+    pub fn rounded(&self) -> f64 {
+        if !self.value.is_finite() {
+            return self.value;
+        }
+        let scale = 10f64.powi(self.digits);
+        (self.value * scale).round() / scale
+    }
+}
+
+/// The value at the precision the display shows, `OVER`/`-OVER` on overload, and the unit symbol:
+/// `-0.0021 V`, `24.0 degC`.
+impl std::fmt::Display for Reading {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.value.is_infinite() {
+            let sign = if self.value.is_sign_negative() {
+                "-"
+            } else {
+                ""
+            };
+            write!(f, "{sign}OVER")?;
+        } else if self.digits >= 0 {
+            write!(f, "{:.*}", self.digits as usize, self.value)?;
+        } else {
+            let scale = 10f64.powi(-self.digits);
+            write!(f, "{:.0}", (self.value / scale).round() * scale)?;
+        }
+        match self.unit.symbol() {
+            "" => Ok(()),
+            unit => write!(f, " {unit}"),
+        }
+    }
 }
 
 /// Global device state carried in the packet's "icon" bytes: not tied to one display.
@@ -412,6 +441,19 @@ impl Packet {
     pub fn parse(buf: [u8; PACKET_SIZE]) -> Result<Self, ParseError> {
         validate(&buf)?;
         Ok(Packet { raw: buf })
+    }
+
+    /// Like [`Packet::parse`], from a slice that must be exactly [`PACKET_SIZE`] bytes.
+    pub fn from_slice(buf: &[u8]) -> Result<Self, ParseError> {
+        let buf: [u8; PACKET_SIZE] = buf
+            .try_into()
+            .map_err(|_| ParseError::WrongLength(buf.len()))?;
+        Self::parse(buf)
+    }
+
+    /// The 19 bytes as received.
+    pub fn raw(&self) -> &[u8; PACKET_SIZE] {
+        &self.raw
     }
 
     pub fn flags(&self) -> Flags {
@@ -684,6 +726,48 @@ mod tests {
     fn auto_range_bar_is_present_and_scaled_to_5v_range() {
         let bar = Packet::parse(PKT1).unwrap().bar().unwrap().unwrap();
         assert_eq!(bar.value, 0.0);
+    }
+
+    fn reading(value: f64, digits: i32, unit: Unit) -> Reading {
+        Reading {
+            value,
+            digits,
+            quantity: Quantity::Voltage,
+            unit,
+            overload: false,
+            ac: false,
+            dc: true,
+        }
+    }
+
+    #[test]
+    fn formats_readings() {
+        assert_eq!(reading(-0.0021, 4, Unit::Volt).to_string(), "-0.0021 V");
+        assert_eq!(reading(24.0, 1, Unit::Celsius).to_string(), "24.0 degC");
+        assert_eq!(
+            reading(50_000_000.0, -3, Unit::Ohm).to_string(),
+            "50000000 ohm"
+        );
+        assert_eq!(reading(f64::INFINITY, 1, Unit::Volt).to_string(), "OVER V");
+        assert_eq!(
+            reading(f64::NEG_INFINITY, 1, Unit::Volt).to_string(),
+            "-OVER V"
+        );
+    }
+
+    #[test]
+    fn rounds_to_meter_digits() {
+        assert_eq!(reading(3.2971000000000004, 4, Unit::Volt).rounded(), 3.2971);
+        assert_eq!(reading(1234.0, -3, Unit::Ohm).rounded(), 1000.0);
+    }
+
+    #[test]
+    fn from_slice_checks_the_length() {
+        assert_eq!(
+            Packet::from_slice(&PKT1[..18]).unwrap_err(),
+            ParseError::WrongLength(18)
+        );
+        assert_eq!(Packet::from_slice(&PKT1).unwrap().raw(), &PKT1);
     }
 
     #[test]

@@ -1,0 +1,19 @@
+[package]
+name = "gw121_py"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Python module for the EEVblog 121GW multimeter over Bluetooth LE"
+publish = false # distributed as a Python wheel, see pyproject.toml
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gw121.workspace = true
+futures-util.workspace = true
+pyo3.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }

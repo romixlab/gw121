@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.11,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "gw121"
+description = "Read an EEVblog 121GW multimeter over Bluetooth LE (Linux, BlueZ)"
+requires-python = ">=3.9"
+license = "MIT OR Apache-2.0"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Operating System :: POSIX :: Linux",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/romixlab/gw121_cli"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.maturin]
+module-name = "gw121"
+
+[tool.uv]
+# Rebuild the package when any rust files change
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "**/*.rs" }, { file = "../gw121/**/*.rs" }]

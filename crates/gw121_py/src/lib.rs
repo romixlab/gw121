@@ -328,10 +328,10 @@ struct Device {
 impl Device {
     fn __repr__(&self) -> String {
         format!(
-            "<Device {} {:?} rssi={:?}>",
+            "<Device {} {:?} rssi={}>",
             self.address,
             self.name.as_deref().unwrap_or("-"),
-            self.rssi
+            self.rssi.map_or("None".to_string(), |r| r.to_string())
         )
     }
 }

@@ -6,7 +6,7 @@ description: Read an EEVblog 121GW multimeter's live display over Bluetooth LE w
 # EEVblog 121GW multimeter readings
 
 The `gw121` CLI (`just install` or `cargo install --path crates/gw121_cli` in this repo, or `cargo install gw121_cli` once published; source:
-https://github.com/romixlab/gw121_cli) reads the 121GW's main display, secondary display, bargraph and flags
+https://github.com/romixlab/gw121) reads the 121GW's main display, secondary display, bargraph and flags
 (auto-range, hold, relative, AC/DC, battery) over Bluetooth LE. **Mode and range are chosen on the meter's own
 rotary knob; this tool only ever reads them, never sets them** — there is nothing here that can change what the
 meter measures or drive anything.

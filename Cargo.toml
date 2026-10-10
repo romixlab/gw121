@@ -7,7 +7,7 @@ version = "0.3.0"
 edition = "2024"
 authors = ["Roman Isaikin <roman@vhrd.tech>"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/romixlab/gw121_cli"
+repository = "https://github.com/romixlab/gw121"
 rust-version = "1.88"
 
 [workspace.dependencies]

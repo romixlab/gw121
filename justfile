@@ -1,4 +1,4 @@
-# gw121_cli: the EEVblog 121GW library, CLI and Python module.
+# gw121: the EEVblog 121GW library, CLI and Python module.
 
 py_venv := "/tmp/gw121_py-venv"
 
@@ -25,5 +25,5 @@ install:
 
 # Bring this PC up to main
 deploy:
-    tpm repos pull gw121_cli
+    tpm repos pull gw121
     just install

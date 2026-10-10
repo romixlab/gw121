@@ -1,6 +1,6 @@
-# gw121_cli features and roadmap
+# gw121 features and roadmap
 
-This file is the single source of truth for what gw121_cli does, what is broken and what is planned.
+This file is the single source of truth for what gw121 does, what is broken and what is planned.
 [CHANGELOG.md](CHANGELOG.md) records what changed and when; this file records the current state.
 
 ## How to use this file

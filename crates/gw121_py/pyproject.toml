@@ -15,7 +15,7 @@ classifiers = [
 dynamic = ["version"]
 
 [project.urls]
-Repository = "https://github.com/romixlab/gw121_cli"
+Repository = "https://github.com/romixlab/gw121"
 
 [dependency-groups]
 dev = ["pytest>=8"]

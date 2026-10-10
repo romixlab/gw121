@@ -1,8 +1,8 @@
-# Working on gw121_cli
+# Working on gw121
 
 Guidance for AI agents and contributors. Read this before changing code.
 
-gw121_cli is the `gw121` Rust library, the `gw121` command line tool and agent skill on top of it, and the
+The gw121 repo is the `gw121` Rust library, the `gw121` command line tool and agent skill on top of it, and the
 `gw121` Python module, for the EEVblog 121GW multimeter: reads the main and secondary displays, the bargraph,
 and the meter's flags (auto-range, hold, relative, AC/DC, battery) over Bluetooth LE. Mode and range are chosen on the meter's own rotary knob; this tool only ever reads them, never
 sets them — there is no "write" side to this protocol worth having.
@@ -134,7 +134,7 @@ beyond that one accepted exception.
 
 Not published to crates.io or PyPI yet. When it is: crates `gw121` (library) and `gw121_cli` (binary
 `gw121`), the Python wheel `gw121` from `crates/gw121_py` (maturin, abi3), repo
-`github.com/romixlab/gw121_cli`, MIT or Apache-2.0. Public repo: nothing private in commits, docs or the skill
+`github.com/romixlab/gw121`, MIT or Apache-2.0. Public repo: nothing private in commits, docs or the skill
 (no device serials, internal hosts, paths, ids). libsigrok's `eev121gw.c` is GPL-2.0-or-later: port facts
 (bit positions, mode numbers, scale tables), never its code.
 

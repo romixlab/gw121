@@ -1,4 +1,4 @@
-# gw121_cli
+# gw121
 
 Read an EEVblog 121GW multimeter over Bluetooth LE: a Rust library, a CLI and agent skill on top, and a Python
 module for notebooks and test benches.

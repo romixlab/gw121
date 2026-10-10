@@ -6,6 +6,8 @@ every feature; IDs in parentheses refer to it.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
 ### Added
 
 - `gw121` library crate: scan, connect, read one packet or stream them, typed readings and flags, errors as an

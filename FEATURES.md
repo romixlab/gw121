@@ -13,35 +13,36 @@ This file is the single source of truth for what gw121_cli does, what is broken 
   when talking to people (`DMM-1 packet-format`).
 - When finishing work, update the item in the same commit. Obsolete items go to *Dropped and superseded*.
 
-Real-device checks so far: no 121GW yet (the meter is next to this PC but was not in BLE mode while this was
-built; `tpm work say parent` was used to ask for it). `gw121 --version`, `--help` and shell completion were run
-directly; `gw121 scan --all` was run against this PC's real Bluetooth adapter and found five real nearby BLE
-devices (a smartwatch, two TVs), confirming the adapter-open/discover/name/RSSI path works against real BlueZ
-— just not yet against the meter itself (connect and GATT characteristic lookup are untested on real BLE).
+Real-device checks so far (10 Oct 2026, a real 121GW in BLE mode next to this PC, knob on DCV, probes on a
+3.3 V rail): `gw121 scan`, `read`, `--json read` and `log --for 4s` (CLI), and `gw121.scan()`, `read()`,
+`log(duration=4, every=1)`, `Meter` with `read()`/`log()`/`close()`, and Ctrl+C during `log()` (Python), all
+decoded 3.3253 V DC main, ~25 degC sub, bar 3.2, AUTO; the meter could be read again right after each, so
+disconnecting works. Not yet checked on the real meter: other knob positions, overload, HOLD/REL, a meter
+switched off mid-`log`. `--version`, `--help` and shell completion were run directly.
 
 ## Library (`LIB`)
 
-- 🧪 **LIB-1 Library-first split**: a Cargo workspace: `crates/gw121` (the library: `Meter` open/connect,
+- ✅ **LIB-1 Library-first split**: a Cargo workspace: `crates/gw121` (the library: `Meter` open/connect,
   `read`, `packets` as a `futures::Stream` of validated packets, `disconnect`; `gw121::read`; `ble::scan`,
   `ble::find_meter`; typed `Packet`/`Reading`/`Flags`; `gw121::Error` via thiserror with one variant per
   case), `crates/gw121_cli` (the same `gw121` commands, flags, JSON and completions, on the library) and
-  `crates/gw121_py` (PY-1). Unit tests moved with the code and pass; `gw121 scan`, `read` and `--json read`
-  were run against this PC's real adapter after the split.
+  `crates/gw121_py` (PY-1). Unit tests moved with the code and pass; the CLI and the Python module were run against a
+  real 121GW after the split (see the top of this file).
 
 ## BLE transport (`BLE`)
 
-- 🧪 **BLE-1 Scan, connect, subscribe**: `ble.rs` uses `bluer` (BlueZ over D-Bus; AGENTS.md has why this and
+- ✅ **BLE-1 Scan, connect, subscribe**: `ble.rs` uses `bluer` (BlueZ over D-Bus; AGENTS.md has why this and
   not a hand-rolled D-Bus client). Scans with a name filter, connects, and finds the meter's data
   characteristic at runtime by its `indicate` GATT property rather than a hardcoded UUID — the 121GW's
   characteristic UUID is not published, only the raw ATT handles the sigrok wiki's `gatttool` capture used
   (handle 8 for data, handle 9's CCCD for the subscribe), which BlueZ's D-Bus API does not expose directly.
-  Scanning was run against this PC's real Bluetooth adapter (`gw121 scan --all`, found five real nearby
-  devices); connect and GATT characteristic lookup are untested on real BLE so far — no 121GW was in BLE mode
-  yet while building this.
+  Scan, connect, finding the indicate characteristic, subscribing and disconnecting all worked on a real
+  121GW (10 Oct 2026): the meter has exactly one indicate characteristic, as expected.
 - 🧪 **BLE-2 Reassembly**: `reassemble.rs`'s `Reassembler` resyncs 19-byte packets out of a stream of raw BLE
   indication bytes (not aligned to packet boundaries, and the link is reported to drop or truncate packets).
   Unit-tested against the exact indication bytes from the sigrok wiki's own `gatttool` capture, both the clean
-  case and injected corruption; not yet exercised against a live, possibly flakier BLE link.
+  case and injected corruption; on a real meter it produced clean packets for a few seconds of `log`; not yet exercised on a long, flaky
+  link.
 
 ## Packet format (`DMM`)
 
@@ -77,26 +78,27 @@ devices (a smartwatch, two TVs), confirming the adapter-open/discover/name/RSSI 
   real cached scan.
 - ✅ **CLI-3 JSON output**: `--json` on every command (one object per line), errors as `{"error": ...}` with
   exit code 1; text output is short and line-oriented.
-- 🧪 **CLI-4 scan**: lists nearby 121GW meters (or `--all` BLE devices) with address, name, RSSI; saves the
+- ✅ **CLI-4 scan**: lists nearby 121GW meters (or `--all` BLE devices) with address, name, RSSI; saves the
   result for `--address` completion. Ran `gw121 scan --all` against this PC's real adapter and got five real
-  nearby devices; the 121GW-name filter and the completion cache it saves are not yet checked against a real
-  meter.
-- 🧪 **CLI-5 read**: connects, subscribes, prints the first valid packet's main/sub/bar readings and flags,
+  nearby devices; `gw121 scan` found the real 121GW by name (`88:6B:...  121GW  -78 dBm`).
+- ✅ **CLI-5 read**: connects, subscribes, prints the first valid packet's main/sub/bar readings and flags,
   then disconnects. `--address` to skip auto-discovery, `--timeout` for the whole scan+connect+first-packet
-  budget. Not yet run against a real meter.
-- 🧪 **CLI-6 log**: connects and prints readings continuously until Ctrl+C or `--for`; `--every` throttles how
+  budget. Ran on a real 121GW, text and `--json`: `main: 3.3253 V DC`, `sub: 25.3 degC`, `bar: 3.2`, `AUTO`.
+- ✅ **CLI-6 log**: connects and prints readings continuously until Ctrl+C or `--for`; `--every` throttles how
   often a line is emitted (and how often a CSV row is written) to at most once per interval; `--csv FILE`
-  appends rows alongside the normal text/JSON output. Not yet run against a real meter.
+  appends rows alongside the normal text/JSON output. `log --for 4s` ran on a real 121GW and stopped on time;
+  `--csv` and `--every` not yet run on the meter.
 
 ## Python (`PY`)
 
-- 🧪 **PY-1 Python module `gw121`**: `crates/gw121_py`, PyO3 (abi3, Python >= 3.9) built with maturin:
+- ✅ **PY-1 Python module `gw121`**: `crates/gw121_py`, PyO3 (abi3, Python >= 3.9) built with maturin:
   `scan()`, `read()`, `log()` (an iterator of packets with `duration`/`every`/`timeout`, a context manager
   that disconnects), `Meter` (stay connected: `read()`, `log()`, `close()`, `with`), `parse(bytes)` offline;
   `Packet` (`main`, `sub`, `bar`, `flags`, `time`, `raw`), `Reading` (`value` rounded to the display's digits,
   `unit`, `quantity`, `str()` as displayed), exceptions under `Gw121Error` mapped from `gw121::Error`. Calls
   release the GIL and stop on Ctrl+C. Type stubs (`gw121.pyi`) ship in the wheel. `just test-py` builds it in
-  a venv under /tmp and runs the offline pytest smoke test (recorded packets, error mapping).
+  a venv under /tmp and runs the offline pytest smoke test (recorded packets, error mapping). `scan()`,
+  `read()`, `log(duration, every)`, `Meter` and Ctrl+C were run on a real 121GW (see the top of this file).
 
 ## Agent skill (`SKILL`)
 

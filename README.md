@@ -21,7 +21,8 @@ Mode and range live on the meter's own rotary knob; this tool only ever reads th
 ## Python
 
 ```sh
-pip install ./crates/gw121_py          # builds with maturin; needs Rust and libdbus-1 headers
+uv pip install ./crates/gw121_py       # in a uv venv; builds with maturin, needs Rust and libdbus-1 headers
+uv add ./crates/gw121_py               # or as a dependency of a uv project
 ```
 
 ```python

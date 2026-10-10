@@ -75,8 +75,8 @@ the CSV path if one was written.
 
 ## From Python
 
-For a notebook or a test script, the `gw121` Python module does the same (`pip install ./crates/gw121_py` in
-this repo; needs Rust):
+For a notebook or a test script, the `gw121` Python module does the same (`uv pip install ./crates/gw121_py` in
+a uv venv, or `uv add ./crates/gw121_py` in a uv project; needs Rust):
 
 ```python
 import gw121

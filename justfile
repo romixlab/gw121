@@ -19,7 +19,7 @@ lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
 
-# Our PCs: the kept-releases stack, one copy on PATH; anywhere else: plain cargo install
+# With tpm on PATH: tpm install (kept-releases stack, one copy on PATH); otherwise: cargo install
 # Build and install gw121 on this PC; completion: source <(COMPLETE=bash gw121)
 install:
     cargo build --profile deploy --locked -p gw121_cli

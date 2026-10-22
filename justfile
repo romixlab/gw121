@@ -19,11 +19,15 @@ lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
 
+# Our PCs: the kept-releases stack, one copy on PATH; anywhere else: plain cargo install
 # Build and install gw121 on this PC; completion: source <(COMPLETE=bash gw121)
 install:
-    cargo install --quiet --path crates/gw121_cli --locked
+    cargo build --profile deploy --locked -p gw121_cli
+    if command -v tpm >/dev/null; then tpm install target/deploy/gw121; else cargo install --locked --path crates/gw121_cli; fi
 
-# Bring this PC up to main
+# Bring this PC up to main: pull, install, check --version against main
 deploy:
-    tpm repos pull gw121
+    if command -v tpm >/dev/null; then tpm repos pull gw121; else git pull --ff-only; fi
     just install
+    gw121 --version | grep -q "($(git rev-parse --short HEAD)" || { echo "gw121 --version does not show $(git rev-parse --short HEAD)"; gw121 --version; exit 1; }
+    gw121 --version

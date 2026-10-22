@@ -10,7 +10,7 @@ module for notebooks and test benches.
 | [`crates/gw121_py`](crates/gw121_py) | the `gw121` Python module (PyO3 + maturin) |
 
 ```sh
-cargo install --path crates/gw121_cli
+cargo install --path crates/gw121_cli       # (in a checkout with tpm: `just install`)
 gw121 scan                  # find the meter: hold its 1ms PEAK button until BT lights
 gw121 read                  # one reading: main display, sub display, bargraph, flags
 gw121 log --for 1m --csv out.csv --every 1s

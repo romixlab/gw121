@@ -99,7 +99,7 @@ cargo run -- read
 just lint                               # fmt check + clippy -D warnings on every crate
 just test                               # cargo test --workspace + the Python smoke test; no BLE adapter or meter needed
 just test-py                            # builds the Python module into /tmp/gw121_py-venv (uv + maturin), runs pytest
-just install                            # puts `gw121` in ~/.cargo/bin
+just install                            # builds and puts `gw121` on PATH (with tpm: the release stack in ~/.local/bin; without: cargo install)
 ```
 
 Before declaring a change done: `just lint` and `just test`. Tests never touch BLE —

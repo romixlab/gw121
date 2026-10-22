@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "gw121"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "bluer",
  "futures-util",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "gw121_cli"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "gw121_py"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "futures-util",
  "gw121",

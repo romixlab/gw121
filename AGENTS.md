@@ -148,7 +148,11 @@ Not published to crates.io or PyPI yet. When it is: crates `gw121` (library) and
 - Every command supports `--json`; keep text output short and line-oriented (agents read it), units spelled
   out (`-0.0021 V`, `24.0 degC`).
 - CLI look and behaviour (help, completion, output, colour, errors and exit codes, progress, prompts, --version):
-  follow the CLI UX guide, `~/git/tpm/area/ops/cli-ux.md`; repo-specific rules here win where they are stricter.
+  follow the CLI UX guide, `~/git/vhrd_cli/docs/ux-guide.md`
+  (https://github.com/vhrdtech/vhrd_cli/blob/main/docs/ux-guide.md); the rules every UI shares are vhrd_egui's
+  guide section 2, "rules for every UI"
+  (https://github.com/vhrdtech/vhrd_egui/blob/main/docs/ux-guide.md#2-rules-for-every-ui). Repo-specific rules
+  here win where they are stricter.
 
 ## Tests
 

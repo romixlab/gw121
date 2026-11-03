@@ -147,6 +147,8 @@ Not published to crates.io or PyPI yet. When it is: crates `gw121` (library) and
 - The CLI stays thin: new behaviour goes into the library first, then the CLI and the Python module call it.
 - Every command supports `--json`; keep text output short and line-oriented (agents read it), units spelled
   out (`-0.0021 V`, `24.0 degC`).
+- CLI look and behaviour (help, completion, output, colour, errors and exit codes, progress, prompts, --version):
+  follow the CLI UX guide, `~/git/tpm/area/ops/cli-ux.md`; repo-specific rules here win where they are stricter.
 
 ## Tests
 

@@ -6,17 +6,21 @@ every feature; IDs in parentheses refer to it.
 
 ## [Unreleased]
 
+### Changed
+
+- docs: internal references removed
+
 ## [0.4.2] - 2026-10-22
 
 ### Added
 
-- `just test --changed` runs only the workspace crates changed against main and their dependents (`tpm test changed`, nextest's `rdeps()`); plain `just test` runs everything, as `just test-all` does (tpm ops#22oct-2049).
+- `just test --changed` runs only the workspace crates changed against main and their dependents (nextest's `rdeps()`); plain `just test` runs everything, as `just test-all` does.
 
 ## [0.4.1] - 2026-10-22
 
 ### Changed
 
-- `just install` works anywhere: it builds with the new `deploy` profile (release, incremental) and installs through `tpm install` when tpm is there (the binary on PATH once, in the kept-releases stack in ~/.local/bin; a stale ~/.cargo/bin copy goes to the trash), else with `cargo install --locked`. `just deploy` checks `--version` against main's commit.
+- `just install` works anywhere: it builds with the new `deploy` profile (release, incremental) and installs through our release tool when it is there (the binary on PATH once, in a kept-releases stack locally; a stale previous copy goes to the trash), else with `cargo install --locked`. `just deploy` checks `--version` against main's commit.
 
 ## [0.4.0] - 2026-10-10
 

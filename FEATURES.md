@@ -8,7 +8,7 @@ This file is the single source of truth for what gw121 does, what is broken and 
 - **Status**: ✅ done (verified on a real 121GW) · 🧪 done, verified against recorded packets and/or unit
   tests only · 🚧 partial (the note says what is missing) · 🐛 known bug · 📋 planned · 💡 idea ·
   ⛔ blocked (on what) · 🔍 needs a check.
-- **IDs** (`DMM-1`) are stable: never renumber or reuse one. New ids come from `tpm work claim AREA`. Use the
+- **IDs** (`DMM-1`) are stable: never renumber or reuse one. New ids take the next free number in their area. Use the
   ID in commit messages, CHANGELOG entries and code `TODO`s (`// TODO(DMM-1): ...`); name it with a short slug
   when talking to people (`DMM-1 packet-format`).
 - When finishing work, update the item in the same commit. Obsolete items go to *Dropped and superseded*.
@@ -104,7 +104,7 @@ switched off mid-`log`. `--version`, `--help` and shell completion were run dire
 
 - 🧪 **SKILL-1 skills/gw121/SKILL.md**: what to ask about the meter's BLE mode and knob position, read/log
   recipes, reading the output, what mode/range numbers mean. Not yet used on a real debugging session.
-- 📋 **SKILL-2 Skill tree**: usage signals and skilltree entries for the `gw121` commands (P2618 task).
+- 📋 **SKILL-2 Skill tree**: usage signals and skilltree entries for the `gw121` commands.
 
 ## Dropped and superseded
 

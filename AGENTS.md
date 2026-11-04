@@ -42,7 +42,7 @@ IDs per area (`LIB`, `BLE`, `DMM`, `CLI`, `PY`, `SKILL`).
 - **Read the relevant area before starting.** A "new" bug or idea is often already recorded.
 - **Name IDs with a short slug when talking to the user**: `DMM-1 packet-format`, never a bare `DMM-1`. Commit
   messages, CHANGELOG and code `TODO`s keep the bare ID.
-- **Update it in the same commit** as the code. New ids: `tpm work claim AREA` prints the next free one. Never
+- **Update it in the same commit** as the code. New ids: pick the next free number in that area. Never
   renumber or reuse IDs.
 - Status ✅ means verified on a real 121GW; 🧪 means recorded packets and/or unit tests only. Keep that honest,
   and say in the item what was checked how.
@@ -58,7 +58,7 @@ IDs per area (`LIB`, `BLE`, `DMM`, `CLI`, `PY`, `SKILL`).
 ## Layout
 
 Cargo workspace, edition 2024, one version for all crates (`[workspace.package]`), the same layout as the other
-instrument tools (tpm CLAUDE.md "Code repos": tools are a library first):
+instrument tools (our own convention: a tool is a library first):
 
 - `crates/gw121` — the library, the typed API; everything that talks BLE or knows the packet format lives here.
   Errors are `gw121::Error` (thiserror), never `anyhow`.
@@ -99,7 +99,7 @@ cargo run -- read
 just lint                               # fmt check + clippy -D warnings on every crate
 just test                               # cargo test --workspace + the Python smoke test; no BLE adapter or meter needed
 just test-py                            # builds the Python module into /tmp/gw121_py-venv (uv + maturin), runs pytest
-just install                            # builds and puts `gw121` on PATH (with tpm: the release stack in ~/.local/bin; without: cargo install)
+just install                            # builds and puts `gw121` on PATH (through our release tool when available, else cargo install)
 ```
 
 Before declaring a change done: `just lint` and `just test`. Tests never touch BLE —
@@ -107,7 +107,7 @@ everything there is checked against the packet bytes recorded in the sigrok wiki
 `scan`/`read`/`log` against a real meter needs: Bluetooth powered on this PC (`bluetoothctl power on`; `rfkill
 unblock bluetooth` first if soft-blocked), and the meter in BLE mode (hold its **1ms PEAK** button until the
 **BT** indicator lights). The meter is a piece of hardware next to this PC, not something this session can
-touch directly — ask the user or the parent session (`tpm work say parent`) to put it in BLE mode or on a given
+touch directly — ask the user or whoever is coordinating this work to put it in BLE mode or on a given
 knob position when a change needs checking against it, then carry on with what can be tested without it. Say
 in the report which commands were actually run against a real meter versus only against recorded packets.
 
@@ -120,7 +120,7 @@ PC's `rfkill`/`bluetoothctl` pairing/trust state beyond powering the adapter on 
 
 ## Dependencies
 
-Pure Rust only (tpm "Code repos" rule) **except** the BLE stack: `bluer` (and its alternative, `btleplug`) both
+Pure Rust only (our "code repos" convention) **except** the BLE stack: `bluer` (and its alternative, `btleplug`) both
 depend on the classic `dbus` crate, which binds the system `libdbus-1` C library via `libdbus-sys` — there is
 no mature pure-Rust BlueZ GATT client to reach for instead, and the task that started this repo explicitly
 named `bluer`/`btleplug` as the accepted exception over hand-rolling BlueZ's D-Bus API directly. `bluer` was
@@ -170,12 +170,12 @@ Conventional Commits with a scope: `feat(ble): ...`, `fix(protocol): ...`, scope
 `ble`, `cli`, `py`, `skill`, `build`. Short imperative summary, blank line, body with what and why; reference feature
 IDs.
 
-Commit on your own initiative on a session branch (`tpm work new SLUG`), each finished step one commit with
-FEATURES.md and CHANGELOG.md updated in it. When the work is done and the user agrees, `tpm land` puts it on
+Commit on your own initiative on a session branch, each finished step one commit with
+FEATURES.md and CHANGELOG.md updated in it. When the work is done and the user agrees, it lands on
 main.
 
 ## Versions
 
-Landing bumps the version, not each work commit (tpm CLAUDE.md "Landing bumps the version"): session commits add
-CHANGELOG entries under `[Unreleased]` without bumping; `tpm land` makes the `release: x.y.z` commit.
+Landing bumps the version, not each work commit: session commits add
+CHANGELOG entries under `[Unreleased]` without bumping; landing makes the `release: x.y.z` commit.
 `gw121 --version` prints version, git SHA and build time (`build.rs`, no extra crates).

@@ -5,9 +5,9 @@ py_venv := "/tmp/gw121_py-venv"
 default:
     @just --list
 
-# The tests. `just test`: all of them (test-all), the run of the `tpm land` gate. `just test --changed`: only the
-# workspace crates changed against main and the crates that depend on them (tpm test changed), what a session runs
-# before tpm work ready.
+# The tests. `just test`: all of them (test-all), the run before landing on main. `just test --changed`: only the
+# workspace crates changed against main and the crates that depend on them, what to run before marking a change
+# ready for review.
 test *flags:
     if [ "{{flags}}" = "--changed" ]; then tpm test changed -- cargo nextest run --workspace; else {{just_executable()}} test-all {{flags}}; fi
 
@@ -25,7 +25,7 @@ lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
 
-# With tpm on PATH: tpm install (kept-releases stack, one copy on PATH); otherwise: cargo install
+# With our release tool on PATH: installs through it (kept-releases stack, one copy on PATH); otherwise: cargo install
 # Build and install gw121 on this PC; completion: source <(COMPLETE=bash gw121)
 install:
     cargo build --profile deploy --locked -p gw121_cli

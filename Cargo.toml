@@ -25,7 +25,7 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
-# `just install`: a release build that rebuilds incrementally, installed through `tpm install`
+# `just install`: a release build that rebuilds incrementally, installed through our release tool when available
 [profile.deploy]
 inherits = "release"
 incremental = true

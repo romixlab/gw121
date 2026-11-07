@@ -6,6 +6,8 @@ every feature; IDs in parentheses refer to it.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-07
+
 ### Changed
 
 - docs: internal references removed

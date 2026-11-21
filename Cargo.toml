@@ -29,3 +29,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 [profile.deploy]
 inherits = "release"
 incremental = true
+
+[profile.dev]
+debug = false
